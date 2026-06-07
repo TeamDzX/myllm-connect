@@ -1,5 +1,7 @@
 # MyLLM Connect
 
+![MyLLM Connect](brand/banner.jpg)
+
 [![Download MyLLM on the App Store](https://img.shields.io/badge/MyLLM-App_Store-0A84FF?logo=apple&logoColor=white)](https://apps.apple.com/gb/app/myllm-local-ai-agent/id6760704297)
 
 **Run your own private AI backend on your Mac or PC, and connect the [MyLLM](https://apps.apple.com/gb/app/myllm-local-ai-agent/id6760704297) iOS app to it in one tap — over real HTTPS, from anywhere.**
