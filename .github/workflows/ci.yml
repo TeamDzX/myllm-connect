@@ -1,0 +1,27 @@
+# Issue #1 acceptance: the tray app builds in CI on both OSes (no bundling,
+# no signing — just "does it compile and pass checks").
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: clippy, rustfmt }
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: src-tauri }
+      - run: cargo fmt --check
+        working-directory: src-tauri
+      - run: cargo clippy --no-deps -- -D warnings
+        working-directory: src-tauri
+      - run: cargo build --release
+        working-directory: src-tauri
