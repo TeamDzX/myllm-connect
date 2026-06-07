@@ -1,0 +1,4 @@
+# Hand-run pairing proof secrets — the token is a password; the QR encodes it.
+handrun/token.txt
+handrun/pair_qr.png
+__pycache__/
