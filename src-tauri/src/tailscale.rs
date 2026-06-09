@@ -15,8 +15,12 @@ use serde::Serialize;
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum TailscaleState {
-    /// CLI not found on disk.
+    /// CLI not found on disk, and the GUI app isn't present either.
     NotInstalled,
+    /// The Tailscale app is installed but its command-line tool isn't linked.
+    /// Mac App Store installs don't add the CLI to a standard path — the user
+    /// must run "Tailscale ▸ Install CLI" once. (macOS-specific.)
+    CliNotLinked,
     /// Installed but the node is logged out.
     LoggedOut,
     /// Logged in, but HTTPS/Serve isn't enabled on the tailnet yet.
@@ -51,6 +55,17 @@ pub fn cli() -> Option<PathBuf> {
     candidates().into_iter().find(|p| p.exists())
 }
 
+/// State to report when no CLI binary is found: on macOS, distinguish "the app
+/// is installed but the CLI isn't linked" (the Mac App Store case — guide the
+/// user to "Install CLI") from "not installed at all".
+fn not_found_state() -> TailscaleState {
+    #[cfg(target_os = "macos")]
+    if std::path::Path::new("/Applications/Tailscale.app").exists() {
+        return TailscaleState::CliNotLinked;
+    }
+    TailscaleState::NotInstalled
+}
+
 fn run(cli: &PathBuf, args: &[&str]) -> std::io::Result<std::process::Output> {
     Command::new(cli).args(args).output()
 }
@@ -58,7 +73,7 @@ fn run(cli: &PathBuf, args: &[&str]) -> std::io::Result<std::process::Output> {
 /// Current node state without touching serve.
 pub fn status() -> TailscaleState {
     let Some(cli) = cli() else {
-        return TailscaleState::NotInstalled;
+        return not_found_state();
     };
     match run(&cli, &["status"]) {
         Ok(out) => {
@@ -94,7 +109,7 @@ fn extract_enable_url(text: &str) -> Option<String> {
 /// Bring up `tailscale serve` for the loopback proxy and return the state.
 pub fn start_serve(proxy_port: u16) -> TailscaleState {
     let Some(cli) = cli() else {
-        return TailscaleState::NotInstalled;
+        return not_found_state();
     };
 
     // Already logged out? report it cleanly.

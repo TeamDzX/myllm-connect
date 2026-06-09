@@ -138,13 +138,28 @@ pub fn run() {
             open_url
         ])
         .setup(|app| {
+            // macOS: run as a menubar-only accessory — no Dock icon, no app menu
+            // (equivalent to LSUIElement). The tray is the whole UI surface.
+            #[cfg(target_os = "macos")]
+            let _ = app
+                .handle()
+                .set_activation_policy(tauri::ActivationPolicy::Accessory);
+
             let status = MenuItem::with_id(app, "status", "Not sharing yet", false, None::<&str>)?;
             let open = MenuItem::with_id(app, "open", "Open MyLLM Connect", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&status, &open, &quit])?;
 
-            TrayIconBuilder::with_id("main")
-                .icon(app.default_window_icon().unwrap().clone())
+            // Menubar icon: a monochrome *template* on macOS so it adapts to
+            // light/dark menubars; the full-colour app icon on other platforms.
+            #[cfg(target_os = "macos")]
+            let tray_icon =
+                tauri::image::Image::from_bytes(include_bytes!("../icons/tray-template.png"))?;
+            #[cfg(not(target_os = "macos"))]
+            let tray_icon = app.default_window_icon().unwrap().clone();
+
+            let tray = TrayIconBuilder::with_id("main")
+                .icon(tray_icon)
                 .tooltip("MyLLM Connect")
                 .menu(&menu)
                 .show_menu_on_left_click(true)
@@ -157,8 +172,11 @@ pub fn run() {
                     }
                     "quit" => app.exit(0),
                     _ => {}
-                })
-                .build(app)?;
+                });
+            // Tell macOS to tint the icon as a template (alpha-defined shape).
+            #[cfg(target_os = "macos")]
+            let tray = tray.icon_as_template(true);
+            tray.build(app)?;
             Ok(())
         })
         .on_window_event(|window, event| {

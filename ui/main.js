@@ -34,6 +34,10 @@ function render(res) {
       return guide(
         "MyLLM Connect needs Tailscale to create a secure link to your phone. Install it once, sign in, then try again.",
         "Get Tailscale", "https://tailscale.com/download");
+    case "cli_not_linked":
+      return guide(
+        "Tailscale is installed, but its command-line tool isn’t enabled yet. Open Tailscale, choose “Install CLI” from its menu bar icon, then try again.",
+        "Open Tailscale", "/Applications/Tailscale.app");
     case "logged_out":
       return guide("Almost there — open Tailscale and sign in, then try again.", null, null);
     case "serve_not_enabled":
