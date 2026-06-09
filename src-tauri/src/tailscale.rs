@@ -37,8 +37,11 @@ fn candidates() -> Vec<PathBuf> {
 #[cfg(not(windows))]
 fn candidates() -> Vec<PathBuf> {
     vec![
-        PathBuf::from("/usr/bin/tailscale"),
+        // Homebrew (Apple Silicon, then Intel), standalone pkg, then the
+        // Mac App Store app bundle's embedded CLI.
+        PathBuf::from("/opt/homebrew/bin/tailscale"),
         PathBuf::from("/usr/local/bin/tailscale"),
+        PathBuf::from("/usr/bin/tailscale"),
         PathBuf::from("/Applications/Tailscale.app/Contents/MacOS/Tailscale"),
     ]
 }

@@ -43,6 +43,8 @@ This repo is the whole handover — no separate doc to chase.
 
 Spec, pairing protocol, and ADRs are in place; implementation is tracked in the issues (start at the pinned epic). The iOS pairing flow it targets is already shipped in MyLLM v2.6.
 
+The Windows companion now implements the full pairing flow (in-process auth proxy → Tailscale serve → QR), verified end-to-end against the live app. The Rust core is cross-platform; **macOS team: see [`docs/MACOS_IMPLEMENTATION.md`](docs/MACOS_IMPLEMENTATION.md)** for the macOS-specific punch list (Tailscale CLI path, menubar/template icon, signing/notarization, flipping on the CI `.dmg` job).
+
 ## Not the federation host
 
 This is the **personal backend** onramp: your phone, your server, your data. It is intentionally separate from the opticell *federation* host (sharing your LLM with other users), which has its own repo and its own legal/infra prerequisites. Federation may later appear here as an optional mode; v1 is personal-only.
