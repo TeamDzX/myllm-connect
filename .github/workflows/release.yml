@@ -40,6 +40,10 @@ jobs:
           args: --bundles nsis
 
   macos:
+    # Enable by setting the repo *variable* MACOS_CI_SIGNING=true once the
+    # APPLE_* secrets below are configured. Until then macOS builds are made,
+    # signed and notarized locally on the app team's Mac.
+    if: ${{ vars.MACOS_CI_SIGNING == 'true' }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
