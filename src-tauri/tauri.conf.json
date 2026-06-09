@@ -42,7 +42,7 @@
     },
     "macOS": {
       "minimumSystemVersion": "10.15",
-      "signingIdentity": null
+      "signingIdentity": "Developer ID Application: Alex Templet (W99TL6F7Y7)"
     }
   }
 }

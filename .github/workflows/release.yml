@@ -4,9 +4,9 @@
 # Windows (.exe, NSIS): built here. Unsigned until the EV cert lands — set the
 #   WINDOWS_CERT_* secrets and the signing step below, then installers stop
 #   tripping SmartScreen (SPEC §6: required before public distribution).
-# macOS (.dmg): the app team packages and notarizes on their Macs for now.
-#   The job below is wired but disabled (`if: false`) — flip it on and add
-#   APPLE_* secrets when they move signing into CI.
+# macOS (.dmg): signed (Developer ID Application) + notarized + stapled in CI
+#   via tauri-action. Universal (Intel + Apple Silicon). Requires the APPLE_*
+#   repo secrets listed on the job below.
 
 name: release
 on:
@@ -39,10 +39,7 @@ jobs:
           releaseDraft: true
           args: --bundles nsis
 
-  # App team: flip `if` to true when you want CI dmg builds; until then you
-  # own .dmg packaging + notarization locally (Apple Developer ID required).
   macos:
-    if: ${{ false }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,8 +53,15 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD /
-          # APPLE_SIGNING_IDENTITY / APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID
+          # Code signing — Developer ID Application cert exported to base64 .p12:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # Notarization — app-specific password (Apple ID method). API-key
+          # alternative: APPLE_API_ISSUER / APPLE_API_KEY / APPLE_API_KEY_PATH
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "MyLLM Connect ${{ github.ref_name }}"
