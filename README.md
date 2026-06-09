@@ -1,5 +1,7 @@
 # MyLLM Connect
 
+![MyLLM Connect](brand/banner.jpg)
+
 [![Download MyLLM on the App Store](https://img.shields.io/badge/MyLLM-App_Store-0A84FF?logo=apple&logoColor=white)](https://apps.apple.com/gb/app/myllm-local-ai-agent/id6760704297)
 
 **Run your own private AI backend on your Mac or PC, and connect the [MyLLM](https://apps.apple.com/gb/app/myllm-local-ai-agent/id6760704297) iOS app to it in one tap — over real HTTPS, from anywhere.**
@@ -40,6 +42,8 @@ This repo is the whole handover — no separate doc to chase.
 ## Status
 
 Spec, pairing protocol, and ADRs are in place; implementation is tracked in the issues (start at the pinned epic). The iOS pairing flow it targets is already shipped in MyLLM v2.6.
+
+The Windows companion now implements the full pairing flow (in-process auth proxy → Tailscale serve → QR), verified end-to-end against the live app. The Rust core is cross-platform; **macOS team: see [`docs/MACOS_IMPLEMENTATION.md`](docs/MACOS_IMPLEMENTATION.md)** for the macOS-specific punch list (Tailscale CLI path, menubar/template icon, signing/notarization, flipping on the CI `.dmg` job).
 
 ## Not the federation host
 

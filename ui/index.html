@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MyLLM Connect</title>
+  <style>
+    :root { color-scheme: light dark; --blue: #0a84ff; --green: #34c759; --grey: #9ca3af; --red: #ff453a; --amber: #ff9f0a; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      margin: 0; padding: 24px; min-height: 100vh; user-select: none;
+      display: flex; flex-direction: column; align-items: center; gap: 16px;
+    }
+    h1 { font-size: 1.15rem; margin: 4px 0 0; }
+    .status { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: #6b7280; }
+    .dot { width: 11px; height: 11px; border-radius: 50%; background: var(--grey); flex: none; }
+    .dot.green { background: var(--green); } .dot.amber { background: var(--amber); } .dot.red { background: var(--red); }
+    button {
+      font: inherit; font-weight: 600; color: #fff; background: var(--blue);
+      border: 0; border-radius: 10px; padding: 11px 18px; cursor: pointer; width: 100%;
+    }
+    button:disabled { opacity: 0.5; cursor: default; }
+    button.secondary { background: transparent; color: var(--blue); font-weight: 500; padding: 6px; }
+    #qr { width: 240px; height: 240px; background: #fff; border-radius: 12px; padding: 10px; }
+    #qr svg { width: 100%; height: 100%; display: block; }
+    .hint { font-size: 0.82rem; color: #6b7280; text-align: center; max-width: 32ch; line-height: 1.4; }
+    .panel { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; }
+    .hidden { display: none !important; }
+    a { color: var(--blue); }
+    code { background: rgba(127,127,127,.15); padding: 1px 5px; border-radius: 4px; font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <h1>MyLLM Connect</h1>
+  <div class="status"><span id="dot" class="dot"></span><span id="statusText">Not sharing yet</span></div>
+
+  <!-- Idle -->
+  <div id="idle" class="panel">
+    <p class="hint">Run a private AI on this computer and use it from your iPhone. Your data never leaves your machine.</p>
+    <button id="shareBtn">Share with my phone</button>
+  </div>
+
+  <!-- Working -->
+  <div id="working" class="panel hidden">
+    <p class="hint" id="workingText">Setting up your secure connection…</p>
+  </div>
+
+  <!-- Paired / QR -->
+  <div id="paired" class="panel hidden">
+    <div id="qr"></div>
+    <p class="hint">Open <b>MyLLM</b> on your iPhone → <b>Settings → Pair a Backend</b> → scan this.</p>
+    <p class="hint" id="modelLine"></p>
+    <button class="secondary" id="rotateBtn">Rotate access key</button>
+  </div>
+
+  <!-- Guidance (needs action) -->
+  <div id="guide" class="panel hidden">
+    <p class="hint" id="guideText"></p>
+    <button id="guideBtn" class="hidden"></button>
+    <button class="secondary" id="retryBtn">Try again</button>
+  </div>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>

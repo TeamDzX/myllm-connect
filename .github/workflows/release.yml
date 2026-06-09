@@ -1,0 +1,65 @@
+# Direct-distribution builds: tag `vX.Y.Z` -> draft GitHub Release with installers.
+# The release page URLs double as the website's download links.
+#
+# Windows (.exe, NSIS): built here. Unsigned until the EV cert lands — set the
+#   WINDOWS_CERT_* secrets and the signing step below, then installers stop
+#   tripping SmartScreen (SPEC §6: required before public distribution).
+# macOS (.dmg): the app team packages and notarizes on their Macs for now.
+#   The job below is wired but disabled (`if: false`) — flip it on and add
+#   APPLE_* secrets when they move signing into CI.
+
+name: release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: src-tauri }
+      - run: npm ci
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Windows signing (pending EV cert — opticell open question #1):
+          # WINDOWS_CERTIFICATE / WINDOWS_CERTIFICATE_PASSWORD, then set
+          # bundle.windows.certificateThumbprint in tauri.conf.json.
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "MyLLM Connect ${{ github.ref_name }}"
+          releaseDraft: true
+          args: --bundles nsis
+
+  # App team: flip `if` to true when you want CI dmg builds; until then you
+  # own .dmg packaging + notarization locally (Apple Developer ID required).
+  macos:
+    if: ${{ false }}
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: aarch64-apple-darwin,x86_64-apple-darwin }
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: src-tauri }
+      - run: npm ci
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD /
+          # APPLE_SIGNING_IDENTITY / APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "MyLLM Connect ${{ github.ref_name }}"
+          releaseDraft: true
+          args: --bundles dmg --target universal-apple-darwin
