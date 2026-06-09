@@ -35,10 +35,25 @@
   <h1>MyLLM Connect</h1>
   <div class="status"><span id="dot" class="dot"></span><span id="statusText">Not sharing yet</span></div>
 
-  <!-- Idle -->
-  <div id="idle" class="panel">
+  <!-- Welcome (first run only) -->
+  <div id="welcome" class="panel hidden">
+    <p class="hint">Run a private AI on this computer and use it from your iPhone. Your data never leaves your machine.</p>
+    <p class="hint">Two quick checks — your model, then the secure link — and you’re paired.</p>
+    <button id="startBtn">Get started</button>
+    <button class="secondary" id="skipBtn">Skip setup</button>
+  </div>
+
+  <!-- Idle (steady state) -->
+  <div id="idle" class="panel hidden">
     <p class="hint">Run a private AI on this computer and use it from your iPhone. Your data never leaves your machine.</p>
     <button id="shareBtn">Share with my phone</button>
+  </div>
+
+  <!-- Model check (first run / when no model is ready) -->
+  <div id="ollama" class="panel hidden">
+    <p class="hint" id="ollamaText"></p>
+    <button id="ollamaBtn" class="hidden"></button>
+    <button class="secondary" id="ollamaRecheck">Check again</button>
   </div>
 
   <!-- Working -->

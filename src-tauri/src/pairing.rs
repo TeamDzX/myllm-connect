@@ -20,6 +20,24 @@ pub fn token_path() -> PathBuf {
     base.join("MyLLM Connect").join("token")
 }
 
+/// Marker file recording that the first-run flow has been completed.
+fn onboarded_path() -> PathBuf {
+    let base = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
+    base.join("MyLLM Connect").join("onboarded")
+}
+
+/// Has the user been through the first-run flow before?
+pub fn onboarded() -> bool {
+    onboarded_path().exists()
+}
+
+/// Record that the first-run flow is complete (so later launches skip it).
+pub fn mark_onboarded() {
+    let path = onboarded_path();
+    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    let _ = std::fs::write(&path, b"1");
+}
+
 /// Load the persisted token, or mint+persist a fresh one.
 pub fn load_or_mint() -> String {
     let path = token_path();

@@ -4,6 +4,7 @@
 //!   #3 bearer auth proxy  ·  #4 tailscale serve  ·  #5 QR pairing
 //! Driven from the window by a "Share with my phone" button.
 
+mod ollama;
 mod pairing;
 mod proxy;
 mod tailscale;
@@ -97,6 +98,24 @@ fn open_url(url: String) -> Result<(), String> {
     r.map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// Local-model readiness for the first-run flow (installed / running / model).
+#[tauri::command]
+async fn ollama_status() -> ollama::OllamaState {
+    ollama::status().await
+}
+
+/// Whether the first-run flow has been completed before.
+#[tauri::command]
+fn is_onboarded() -> bool {
+    pairing::onboarded()
+}
+
+/// Record that the first-run flow is complete.
+#[tauri::command]
+fn set_onboarded() {
+    pairing::mark_onboarded();
+}
+
 /// Rotate the access key (invalidates paired devices) and re-render the QR.
 #[tauri::command]
 async fn rotate_key(state: State<'_, AppState>) -> Result<ShareResult, String> {
@@ -135,7 +154,10 @@ pub fn run() {
             start_sharing,
             get_status,
             rotate_key,
-            open_url
+            open_url,
+            ollama_status,
+            is_onboarded,
+            set_onboarded
         ])
         .setup(|app| {
             // macOS: run as a menubar-only accessory — no Dock icon, no app menu
