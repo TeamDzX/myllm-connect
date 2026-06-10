@@ -13,7 +13,7 @@ MyLLM Connect is a small desktop companion (system-tray app for macOS and Window
 [![Download for macOS](https://img.shields.io/badge/macOS-Download_.dmg-000000?logo=apple&logoColor=white)](https://github.com/TeamDzX/myllm-connect/releases/latest)
 [![Download for Windows](https://img.shields.io/badge/Windows-Download_.exe-0078D4?logoColor=white)](https://github.com/TeamDzX/myllm-connect/releases/latest)
 
-Grab the latest installer from the [releases page](https://github.com/TeamDzX/myllm-connect/releases/latest). The macOS app is **signed and notarized** (universal — Apple Silicon + Intel). The Windows installer is not code-signed yet, so SmartScreen will warn — signing is on the roadmap. You'll also need [Ollama](https://ollama.com) and a free [Tailscale](https://tailscale.com) account; the app guides you through both on first run.
+Grab the latest installer from the [releases page](https://github.com/TeamDzX/myllm-connect/releases/latest) or from the [MyLLM download page](https://www.opticell-limited.com/myllm-1). The macOS app is **signed and notarized** (universal — Apple Silicon + Intel). The Windows installer is not code-signed yet, so SmartScreen will warn — signing is on the roadmap. You'll also need [Ollama](https://ollama.com) and a free [Tailscale](https://tailscale.com) account; the app guides you through both on first run.
 
 It does three things:
 
