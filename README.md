@@ -52,9 +52,11 @@ Spec, pairing protocol, and ADRs are in place; implementation is tracked in the 
 
 The Windows companion now implements the full pairing flow (in-process auth proxy → Tailscale serve → QR), verified end-to-end against the live app. The Rust core is cross-platform; **macOS team: see [`docs/MACOS_IMPLEMENTATION.md`](docs/MACOS_IMPLEMENTATION.md)** for the macOS-specific punch list (Tailscale CLI path, menubar/template icon, signing/notarization, flipping on the CI `.dmg` job).
 
-## Not the federation host
+## Sharing beyond yourself: trusted circles
 
-This is the **personal backend** onramp: your phone, your server, your data. It is intentionally separate from the opticell *federation* host (sharing your LLM with other users), which has its own repo and its own legal/infra prerequisites. Federation may later appear here as an optional mode; v1 is personal-only.
+This is the **personal backend** onramp: your phone, your server, your data. The next step on the roadmap is **trusted circles** — inviting a few people you actually know (your household, a small team) to pair *their* MyLLM apps to your machine, each with their own key and their own QR code, individually revocable.
+
+An open federation — sharing your LLM with strangers — is deliberately **not** the plan. A privacy-first app shouldn't route anyone's prompts through hardware they have no reason to trust, and ordinary consumer machines can't prove they aren't logging what passes through them. Circles keep the trust model honest: you share with people who trust *you*.
 
 ## License
 
