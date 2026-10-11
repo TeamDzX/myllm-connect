@@ -152,7 +152,20 @@ async fn llama_tags(state: &ProxyState, backend: &Backend) -> Response {
     };
     let status = response.status();
     let value = match response.json::<Value>().await {
-        Ok(value) if status.is_success() => backend::llama_models_to_ollama(value),
+        Ok(value) if status.is_success() => {
+            let props_request = state.client.get(format!("{}/props", backend.base_url));
+            let props_response = backend.request(props_request).send().await;
+            let context_window = match props_response {
+                Ok(response) if response.status().is_success() => response
+                    .json::<Value>()
+                    .await
+                    .ok()
+                    .as_ref()
+                    .and_then(backend::llama_context_window),
+                _ => None,
+            };
+            backend::llama_models_to_ollama(value, context_window)
+        }
         Ok(value) => return json_response(status, value),
         Err(_) => {
             return (StatusCode::BAD_GATEWAY, "invalid llama.cpp model response").into_response()

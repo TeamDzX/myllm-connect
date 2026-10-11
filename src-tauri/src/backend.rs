@@ -152,7 +152,7 @@ fn normalize_loopback_url(raw: &str) -> Result<String, String> {
     Ok(normalized)
 }
 
-pub fn llama_models_to_ollama(value: Value) -> Value {
+pub fn llama_models_to_ollama(value: Value, context_window: Option<u64>) -> Value {
     let models = value
         .get("data")
         .and_then(Value::as_array)
@@ -160,7 +160,7 @@ pub fn llama_models_to_ollama(value: Value) -> Value {
         .flatten()
         .filter_map(|entry| entry.get("id").and_then(Value::as_str))
         .map(|id| {
-            json!({
+            let mut model = json!({
                 "name": id,
                 "model": id,
                 "modified_at": "1970-01-01T00:00:00Z",
@@ -173,10 +173,22 @@ pub fn llama_models_to_ollama(value: Value) -> Value {
                     "parameter_size": "unknown",
                     "quantization_level": "unknown"
                 }
-            })
+            });
+            if let Some(context_window) = context_window {
+                model["context_window"] = json!(context_window);
+            }
+            model
         })
         .collect::<Vec<_>>();
     json!({ "models": models })
+}
+
+pub fn llama_context_window(value: &Value) -> Option<u64> {
+    value
+        .get("default_generation_settings")
+        .and_then(|settings| settings.get("n_ctx"))
+        .and_then(Value::as_u64)
+        .filter(|value| *value > 0)
 }
 
 pub fn ollama_chat_to_openai(mut value: Value) -> Result<(Value, bool), String> {
@@ -649,5 +661,20 @@ mod tests {
             "Seattle"
         );
         assert_eq!(converted["prompt_eval_count"], 4);
+    }
+
+    #[test]
+    fn adds_llama_context_window_to_model_discovery() {
+        let models = json!({ "data": [{ "id": "local-model" }] });
+        let converted = llama_models_to_ollama(models, Some(262_144));
+
+        assert_eq!(converted["models"][0]["context_window"], 262_144);
+    }
+
+    #[test]
+    fn reads_context_window_from_llama_props() {
+        let props = json!({ "default_generation_settings": { "n_ctx": 262144 } });
+
+        assert_eq!(llama_context_window(&props), Some(262_144));
     }
 }

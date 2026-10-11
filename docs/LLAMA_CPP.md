@@ -41,7 +41,7 @@ network services.
 
 | MyLLM/Ollama contract | llama.cpp upstream | Notes |
 |---|---|---|
-| `GET /api/tags` | `GET /v1/models` | Model IDs are returned in Ollama's `models` list. |
+| `GET /api/tags` | `GET /v1/models` plus `/props` | Model IDs are returned in Ollama's `models` list; `default_generation_settings.n_ctx` is exposed as `context_window` when llama.cpp reports it. |
 | `POST /api/chat` | `POST /v1/chat/completions` | Both non-streaming JSON and streaming SSE→NDJSON are supported. |
 
 The chat adapter maps text, reasoning/thinking chunks, tool definitions and
