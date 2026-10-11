@@ -1,7 +1,7 @@
 const invoke = window.__TAURI__.core.invoke;
 
 const $ = (id) => document.getElementById(id);
-const panels = ["welcome", "idle", "ollama", "working", "paired", "guide"];
+const panels = ["welcome", "idle", "model", "working", "paired", "guide"];
 const show = (id) => panels.forEach((p) => $(p).classList.toggle("hidden", p !== id));
 const setStatus = (cls, text) => {
   $("dot").className = "dot " + cls;
@@ -14,42 +14,37 @@ let onboarding = false;
 
 // ---- First run: check the local model, then hand off to the share flow ----
 
-async function checkOllama() {
+async function checkModelServer() {
   show("working");
   setStatus("amber", "Checking your model…");
   let st;
   try {
-    st = await invoke("ollama_status");
+    st = await invoke("model_server_status");
   } catch (e) {
-    return ollamaPanel("Couldn’t check your model: " + e, null, null);
+    return modelPanel("Couldn’t check your model: " + e, null, null);
   }
   switch (st.state) {
     case "ready":
       return share(); // model present — continue to the secure link + QR
-    case "not_installed":
-      return ollamaPanel(
-        "To run a model on this computer, install Ollama — it’s free and open. Install it, then check again.",
-        "Get Ollama", "https://ollama.com/download");
     case "not_running":
-      return ollamaPanel(
-        "Ollama is installed but not open. Start the Ollama app, then check again.",
-        null, null);
+      return modelPanel(
+        "Start Ollama, or start llama.cpp with its OpenAI-compatible server. llama.cpp ports <code>8080</code> and <code>8081</code> are detected automatically.",
+        "llama.cpp setup", "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md");
     case "no_model":
-      return ollamaPanel(
-        "Ollama is running, but there’s no model yet. In Terminal, run one of these, then check again:" +
-          "<br><br><code>ollama pull llama3.2</code> · 2 GB, fast" +
-          "<br><code>ollama pull qwen2.5</code> · 4.7 GB, capable" +
-          "<br><code>ollama pull gemma2:2b</code> · 1.6 GB, tiny",
+      return modelPanel(
+        (st.backend === "llama_cpp"
+          ? "llama.cpp is running, but it did not report a loaded model. Start <code>llama-server</code> with a GGUF model, then check again."
+          : "Ollama is running, but there’s no model yet. Pull a model, then check again."),
         null, null);
     default:
-      return ollamaPanel("Couldn’t check your model.", null, null);
+      return modelPanel("Couldn’t check your model.", null, null);
   }
 }
 
-function ollamaPanel(html, btnLabel, btnUrl) {
+function modelPanel(html, btnLabel, btnUrl) {
   setStatus("red", "Action needed");
-  $("ollamaText").innerHTML = html;
-  const b = $("ollamaBtn");
+  $("modelText").innerHTML = html;
+  const b = $("modelBtn");
   if (btnLabel) {
     b.textContent = btnLabel;
     b.classList.remove("hidden");
@@ -57,7 +52,7 @@ function ollamaPanel(html, btnLabel, btnUrl) {
   } else {
     b.classList.add("hidden");
   }
-  show("ollama");
+  show("model");
 }
 
 // ---- Share / secure link / QR (used in first run and steady state) ----
@@ -76,12 +71,13 @@ async function share() {
 
 function render(res) {
   // No model ready? Route to the model step first (covers steady state too).
-  if (!res.ollama_up || !res.model) return checkOllama();
+  if (!res.model_server_up || !res.model) return checkModelServer();
 
   const ts = res.tailscale;
   if (ts.state === "healthy" && res.qr_svg) {
     $("qr").innerHTML = res.qr_svg;
-    $("modelLine").textContent = res.model ? "Sharing: " + res.model : "";
+    const backend = res.backend === "llama_cpp" ? "llama.cpp" : "Ollama";
+    $("modelLine").textContent = res.model ? "Sharing via " + backend + ": " + res.model : "";
     setStatus("green", "Ready to pair");
     show("paired");
     if (onboarding) { // first successful setup — don't show the wizard again
@@ -128,14 +124,14 @@ function guide(text, btnLabel, btnUrl) {
 
 // ---- Wiring ----
 
-$("startBtn").onclick = checkOllama; // begin first-run setup at the model step
+$("startBtn").onclick = checkModelServer; // begin first-run setup at the model step
 $("skipBtn").onclick = async () => {
   await invoke("set_onboarded");
   onboarding = false;
   setStatus("grey", "Not sharing yet");
   show("idle");
 };
-$("ollamaRecheck").onclick = checkOllama;
+$("modelRecheck").onclick = checkModelServer;
 $("shareBtn").onclick = share;
 $("retryBtn").onclick = share;
 $("rotateBtn").onclick = async () => {

@@ -4,7 +4,8 @@
 //!   #3 bearer auth proxy  ·  #4 tailscale serve  ·  #5 QR pairing
 //! Driven from the window by a "Share with my phone" button.
 
-mod ollama;
+mod backend;
+mod model_server;
 mod pairing;
 mod proxy;
 mod tailscale;
@@ -35,22 +36,24 @@ struct ShareResult {
     pair_url: Option<String>,
     qr_svg: Option<String>,
     model: Option<String>,
-    ollama_up: bool,
+    backend: Option<backend::BackendKind>,
+    model_server_up: bool,
 }
 
-/// Start (or re-confirm) sharing: ensure Ollama is up, bring up tailscale serve,
+/// Start (or re-confirm) sharing: ensure a model server is up, bring up Tailscale Serve,
 /// and produce the pairing QR. The proxy itself is already listening (started at
 /// launch), so this is idempotent.
 #[tauri::command]
 async fn start_sharing(state: State<'_, AppState>) -> Result<ShareResult, String> {
-    let ollama_up = proxy::ollama_up().await;
+    let detected = state.proxy.refresh_backend().await;
+    let model = detected.as_ref().and_then(|backend| backend.model.clone());
+    let backend = detected.as_ref().map(|backend| backend.kind.clone());
+    let model_server_up = detected.is_some();
 
     // tailscale serve is blocking CLI work — run it off the async runtime.
     let ts = tokio::task::spawn_blocking(|| tailscale::start_serve(proxy::PROXY_PORT))
         .await
         .map_err(|e| e.to_string())?;
-
-    let model = proxy::first_model().await;
 
     if let tailscale::TailscaleState::Healthy { url } = &ts {
         *state.https_url.write().await = Some(url.clone());
@@ -62,7 +65,8 @@ async fn start_sharing(state: State<'_, AppState>) -> Result<ShareResult, String
             pair_url: Some(pair),
             qr_svg: qr,
             model,
-            ollama_up,
+            backend,
+            model_server_up,
         });
     }
 
@@ -71,7 +75,8 @@ async fn start_sharing(state: State<'_, AppState>) -> Result<ShareResult, String
         pair_url: None,
         qr_svg: None,
         model,
-        ollama_up,
+        backend,
+        model_server_up,
     })
 }
 
@@ -100,8 +105,10 @@ fn open_url(url: String) -> Result<(), String> {
 
 /// Local-model readiness for the first-run flow (installed / running / model).
 #[tauri::command]
-async fn ollama_status() -> ollama::OllamaState {
-    ollama::status().await
+async fn model_server_status(
+    state: State<'_, AppState>,
+) -> Result<model_server::ModelServerState, String> {
+    Ok(model_server::status(&state.proxy).await)
 }
 
 /// Whether the first-run flow has been completed before.
@@ -155,7 +162,7 @@ pub fn run() {
             get_status,
             rotate_key,
             open_url,
-            ollama_status,
+            model_server_status,
             is_onboarded,
             set_onboarded
         ])

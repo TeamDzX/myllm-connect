@@ -13,15 +13,33 @@ MyLLM Connect is a small desktop companion (system-tray app for macOS and Window
 [![Download for macOS](https://img.shields.io/badge/macOS-Download_.dmg-000000?logo=apple&logoColor=white)](https://github.com/TeamDzX/myllm-connect/releases/latest)
 [![Download for Windows](https://img.shields.io/badge/Windows-Download_.exe-0078D4?logoColor=white)](https://github.com/TeamDzX/myllm-connect/releases/latest)
 
-Grab the latest installer from the [releases page](https://github.com/TeamDzX/myllm-connect/releases/latest) or from the [MyLLM download page](https://www.opticell-limited.com/myllm-1). The macOS app is **signed and notarized** (universal — Apple Silicon + Intel). The Windows installer is not code-signed yet, so SmartScreen will warn — signing is on the roadmap. You'll also need [Ollama](https://ollama.com) and a free [Tailscale](https://tailscale.com) account; the app guides you through both on first run.
+Grab the latest installer from the [releases page](https://github.com/TeamDzX/myllm-connect/releases/latest) or from the [MyLLM download page](https://www.opticell-limited.com/myllm-1). The macOS app is **signed and notarized** (universal — Apple Silicon + Intel). The Windows installer is not code-signed yet, so SmartScreen will warn — signing is on the roadmap. You'll also need either [Ollama](https://ollama.com) or [llama.cpp](https://github.com/ggml-org/llama.cpp), plus a free [Tailscale](https://tailscale.com) account.
 
 It does three things:
 
-1. **Runs a local model server** on your machine (manages Ollama for you).
+1. **Connects to a local model server** on your machine (Ollama or llama.cpp).
 2. **Gives it a trusted HTTPS address** your iPhone accepts — privately, over your own [Tailscale](https://tailscale.com) mesh, with a valid certificate. No port-forwarding, no self-signed-cert warnings, works on your home WiFi and when you're out.
 3. **Pairs to MyLLM with a QR code** — scan once and the app is configured with the address and a private access key.
 
 Your prompts go straight from your phone to your own machine. Nothing runs in our cloud; we never see your data.
+
+## Model backends
+
+### Ollama
+
+Run Ollama normally on `127.0.0.1:11434`. MyLLM Connect detects it automatically and preserves the existing direct Ollama behavior.
+
+### llama.cpp
+
+Start `llama-server` with its OpenAI-compatible API on a loopback port. Ports `8080` and `8081` are detected automatically:
+
+```sh
+llama-server -m /path/to/model.gguf --host 127.0.0.1 --port 8080 --jinja
+```
+
+MyLLM Connect detects `/v1/models` and translates the iPhone app's Ollama requests to llama.cpp. Chat streaming, tool calls, image inputs, JSON output, and common generation options are translated without changing the iPhone app.
+
+For a different local port, launch MyLLM Connect with `MYLLM_LLAMA_CPP_URL`, for example `MYLLM_LLAMA_CPP_URL=http://127.0.0.1:8090`. If `llama-server` uses `--api-key`, set the same value in `MYLLM_LLAMA_CPP_API_KEY`. Backend URLs are restricted to loopback addresses so the desktop companion cannot be used as an open proxy.
 
 ## Why HTTPS matters
 
