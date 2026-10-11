@@ -42,9 +42,11 @@ pub fn client() -> Client {
 
 pub async fn detect(client: &Client) -> Option<Backend> {
     let configured_llama = std::env::var("MYLLM_LLAMA_CPP_URL").ok();
+    let mut configured_url = None;
 
     if let Some(raw_url) = configured_llama {
         if let Ok(url) = normalize_loopback_url(&raw_url) {
+            configured_url = Some(url.clone());
             if let Some(backend) = detect_llama_cpp(client, url).await {
                 return Some(backend);
             }
@@ -55,11 +57,12 @@ pub async fn detect(client: &Client) -> Option<Backend> {
         return Some(backend);
     }
 
-    if std::env::var("MYLLM_LLAMA_CPP_URL").is_err() {
-        for url in DEFAULT_LLAMA_CPP_URLS {
-            if let Some(backend) = detect_llama_cpp(client, (*url).to_string()).await {
-                return Some(backend);
-            }
+    for url in DEFAULT_LLAMA_CPP_URLS {
+        if configured_url.as_deref() == Some(*url) {
+            continue;
+        }
+        if let Some(backend) = detect_llama_cpp(client, (*url).to_string()).await {
+            return Some(backend);
         }
     }
 
