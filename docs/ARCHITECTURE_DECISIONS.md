@@ -43,7 +43,7 @@ Template:
   update channel needed by issue #9.
 
 ## ADR-002: model-server strategy — manage Ollama
-- Status: **accepted**
+- Status: **superseded by ADR-004**
 - Date: 2026-06-07
 - Context: the companion needs a local model server to expose. Options:
   manage an external Ollama vs bundle llama.cpp.
@@ -76,3 +76,22 @@ Template:
 - Consequences: most private (WireGuard mesh, no third party in the path) and it
   works on the LAN and remotely. Cost: the phone installs the free Tailscale app
   once. Revisit a public fallback only if onboarding data shows it's needed.
+
+## ADR-004: model-server strategy — external Ollama and llama.cpp
+- Status: **accepted**
+- Date: 2026-10-10
+- Context: users with an existing llama.cpp workflow should not need to install
+  Ollama, duplicate model files, or change the shipped iOS app. The iOS pairing
+  contract remains the two Ollama endpoints documented in
+  `PAIRING_PROTOCOL.md`; llama.cpp exposes an OpenAI-compatible API instead.
+- Decision: support two external, loopback-only backends. Preserve direct
+  pass-through for Ollama. For llama.cpp, adapt `GET /api/tags` to
+  `GET /v1/models` and `POST /api/chat` to `POST /v1/chat/completions`, including
+  streaming, tools, image inputs, JSON output, and common generation options.
+  Detect a configured llama.cpp URL first, then Ollama, then llama.cpp on ports
+  8080 and 8081. Do not bundle or manage either inference runtime.
+- Consequences: existing Ollama behavior and the iOS protocol stay compatible,
+  while llama.cpp users keep their current model/runtime setup. The adapter is
+  additional protocol surface that requires translation tests and live iOS
+  validation. Only the two endpoints used by MyLLM are exposed for llama.cpp,
+  and configured backend URLs must resolve to loopback.

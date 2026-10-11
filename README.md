@@ -37,7 +37,7 @@ Start `llama-server` with its OpenAI-compatible API on a loopback port. Ports `8
 llama-server -m /path/to/model.gguf --host 127.0.0.1 --port 8080 --jinja
 ```
 
-MyLLM Connect detects `/v1/models` and translates the iPhone app's Ollama requests to llama.cpp. Chat streaming, tool calls, image inputs, JSON output, and common generation options are translated without changing the iPhone app.
+MyLLM Connect detects `/v1/models` and translates the iPhone app's Ollama requests to llama.cpp. Chat streaming, tool calls, image inputs, JSON output, and common generation options are translated without changing the iPhone app. See the [llama.cpp compatibility guide](docs/LLAMA_CPP.md) for detection order, API mappings, security constraints, and validation evidence.
 
 For a different local port, launch MyLLM Connect with `MYLLM_LLAMA_CPP_URL`, for example `MYLLM_LLAMA_CPP_URL=http://127.0.0.1:8090`. If `llama-server` uses `--api-key`, set the same value in `MYLLM_LLAMA_CPP_API_KEY`. Backend URLs are restricted to loopback addresses so the desktop companion cannot be used as an open proxy.
 
@@ -55,20 +55,20 @@ This repo is the whole handover — no separate doc to chase.
 
 1. **Read the pinned [Epic #11](https://github.com/TeamDzX/myllm-connect/issues/11)** — it sequences every issue, gives the build order, and the definition of done.
 2. **Read [`SPEC.md`](SPEC.md)** (what to build, recommendations, open questions) and **[`PAIRING_PROTOCOL.md`](PAIRING_PROTOCOL.md)** (the exact contract).
-3. **First moves:** close **#1 (ADR-001 runtime)** and **#2 (ADR-002 model server)** — record them in [`docs/ARCHITECTURE_DECISIONS.md`](docs/ARCHITECTURE_DECISIONS.md) (ADR-003 HTTPS=Tailscale is already decided) — and post your estimate on **#10**.
+3. **Read [`docs/ARCHITECTURE_DECISIONS.md`](docs/ARCHITECTURE_DECISIONS.md)** for the current runtime, backend, and HTTPS decisions.
 
 ### You can test against the live app today
 **The iOS half is already built and shipped** (MyLLM v2.6 is on the App Store). You do **not** need to wait for the full companion to validate pairing:
 
 - In the app: **Settings → Server → Pair a Backend (scan QR)**.
 - Build a QR encoding `myllm://pair?v=1&url=<https>&token=<key>&models=<id>` per [`PAIRING_PROTOCOL.md`](PAIRING_PROTOCOL.md) and scan it.
-- Stand up the endpoint by hand first — `ollama serve` behind a bearer-checking proxy, exposed with `tailscale serve` — and you can prove the entire scan → chat-over-HTTPS loop before writing the tray app. Build #3 (auth proxy) and #4 (Tailscale) and you're already testable end-to-end.
+- Stand up the endpoint by hand first — Ollama or llama.cpp behind a bearer-checking proxy, exposed with `tailscale serve` — and you can prove the entire scan → chat-over-HTTPS loop before writing the tray app. Build #3 (auth proxy) and #4 (Tailscale) and you're already testable end-to-end.
 
 ## Status
 
 Spec, pairing protocol, and ADRs are in place; implementation is tracked in the issues (start at the pinned epic). The iOS pairing flow it targets is already shipped in MyLLM v2.6.
 
-The Windows companion now implements the full pairing flow (in-process auth proxy → Tailscale serve → QR), verified end-to-end against the live app. The Rust core is cross-platform; **macOS team: see [`docs/MACOS_IMPLEMENTATION.md`](docs/MACOS_IMPLEMENTATION.md)** for the macOS-specific punch list (Tailscale CLI path, menubar/template icon, signing/notarization, flipping on the CI `.dmg` job).
+The companion implements the full pairing flow (in-process auth proxy → Tailscale Serve → QR). Ollama was verified against the live app on Windows; llama.cpp was verified end-to-end on macOS, including bearer enforcement, model discovery, streaming, QR pairing, and an iPhone chat response. See [`docs/MACOS_IMPLEMENTATION.md`](docs/MACOS_IMPLEMENTATION.md) for macOS build and release notes.
 
 ## Sharing beyond yourself: trusted circles
 

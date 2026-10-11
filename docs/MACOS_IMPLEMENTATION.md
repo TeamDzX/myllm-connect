@@ -1,23 +1,23 @@
 # macOS implementation notes — MyLLM Connect
 
-**For:** the macOS/app team · **From:** server team · **Status:** the full
-pairing flow is **built and working on Windows** against the live iOS app. The
-Rust core is cross-platform; this doc is the macOS-specific punch list so you can
-build, sign, and ship the `.dmg`.
+**For:** the macOS/app team · **From:** server team · **Status:** the full pairing
+flow is built and has been validated against the live iOS app on macOS with
+llama.cpp, and on Windows with Ollama. The Rust core is cross-platform; this doc
+captures the macOS-specific build and release work.
 
 ## What the pairing actually does (read this first)
 
 The companion pairs the phone to **the user's own local model on the machine the
 companion runs on** — *not* to any shared/opticell server. It reads the **local**
-hostname, the **local** machine's tailnet node, and the **local** Ollama
-(`127.0.0.1:11434`), mints a per-machine token, and renders a QR pointing at
+hostname, the **local** machine's tailnet node, and a **local** Ollama or
+llama.cpp server, mints a per-machine token, and renders a QR pointing at
 `https://<this-mac>.<tailnet>.ts.net`. Phone → that Mac → that Mac's models.
 Nothing transits our cloud. (This is the *personal backend*; federation/sharing
 is the separate `myllm-host` workstream — keep the macOS copy free of any
 "share with others" framing.)
 
-So when QA scans on a given Mac, they get **that Mac's** Ollama. There is no
-server selection — the machine *is* the server.
+So when QA scans on a given Mac, they get **that Mac's** model server. There is
+no remote server selection — the machine *is* the server.
 
 ## Architecture (already implemented, `src-tauri/src/`)
 
@@ -25,16 +25,18 @@ All cross-platform Rust; runs as-is on macOS unless noted:
 
 | File | Role | macOS notes |
 |---|---|---|
-| `proxy.rs` | Bearer auth proxy `127.0.0.1:11435` → Ollama `11434`; 401 without/wrong token; NDJSON streaming pass-through (#3) | **Portable, no change.** |
+| `backend.rs` | Detect Ollama/llama.cpp and translate llama.cpp OpenAI responses to the iOS Ollama contract | Loopback-only; defaults include llama.cpp ports 8080 and 8081. |
+| `model_server.rs` | Backend-neutral readiness state for the first-run flow | **Portable.** |
+| `proxy.rs` | Bearer auth proxy on `127.0.0.1:11435`; Ollama pass-through or llama.cpp translation; NDJSON streaming | **Portable.** |
 | `tailscale.rs` | Detect CLI, `tailscale serve --bg 11435`, parse the https URL; states incl. `serve_not_enabled` (#4) | **CLI path differs — see below.** |
 | `pairing.rs` | Token mint/persist/rotate, `myllm://pair` payload, QR→SVG (#5) | Token at `~/Library/Application Support/MyLLM Connect/token`. Portable. |
 | `lib.rs` | Tauri commands `start_sharing` / `get_status` / `rotate_key` / `open_url`; proxy starts at launch; tray + window | **Tray behaves differently — see below.** |
 | `ui/` | `index.html` + `main.js`: Share button → QR; per-state guidance panels | Portable (WKWebView). Verify the SVG QR renders. |
 
-The Windows-verified behaviour you should reproduce on macOS:
+Cross-platform behavior to preserve:
 - no/wrong token → **401**; correct token → **200**, locally *and* over the
   `https://…ts.net` endpoint;
-- chat **streams** (NDJSON) through the proxy;
+- chat **streams** (NDJSON) through the proxy for both backends;
 - token is minted + persisted by the app on first launch.
 
 ## macOS-specific work
@@ -43,9 +45,8 @@ The Windows-verified behaviour you should reproduce on macOS:
 Already lists `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`, and the app
 bundle (`/Applications/Tailscale.app/Contents/MacOS/Tailscale`). **Verify on a
 real Mac** — the **Mac App Store** Tailscale does *not* put a CLI on `PATH`; users
-must run *"Tailscale → Install CLI"* (symlinks into `/usr/local/bin`). If your
-target users are MAS-Tailscale, the `not_installed` guidance copy should mention
-enabling the CLI, and you may need to surface that as its own state.
+must run *"Tailscale → Install CLI"* (symlinks into `/usr/local/bin`). The
+`cli_not_linked` state and UI guidance cover this case.
 
 ### 2. `tailscale serve` permissions
 First `serve` on macOS can prompt for permission / require the daemon. Confirm the
@@ -53,14 +54,11 @@ First `serve` on macOS can prompt for permission / require the daemon. Confirm t
 same way it does on Windows.
 
 ### 3. Tray / menubar (`lib.rs`)
-- `show_menu_on_left_click(true)` — confirm left-click opens the menu on the macOS
-  menubar (Windows and macOS differ here).
-- Menubar icons should be **monochrome template images** so they adapt to
-  light/dark menubars. The current tray uses the full-colour app icon; swap in a
-  template-rendered icon for macOS (`Image`/`set_icon_as_template`).
-- `on_window_event` hides the window to the tray on close and keeps the app
-  running — confirm this matches macOS expectations (you may also want to hide the
-  Dock icon: set `LSUIElement`/`ActivationPolicy::Accessory` so it's menubar-only).
+- `show_menu_on_left_click(true)` opens the menubar menu.
+- macOS uses `icons/tray-template.png` with `icon_as_template(true)` so the icon
+  adapts to light and dark menubars.
+- `ActivationPolicy::Accessory` hides the Dock icon, and closing the window hides
+  it while the menubar process remains active.
 
 ### 4. `open_url` (`lib.rs`)
 Uses `open <url>` on macOS — already correct.
@@ -70,8 +68,9 @@ Uses `open <url>` on macOS — already correct.
   `tauri.conf.json`).
 - **Signing + notarization** with your Apple Developer ID (the SPEC §9 open
   question). Unsigned = Gatekeeper blocks it.
-- `tauri.conf.json` → `bundle.macOS.signingIdentity` is `null` (placeholder); set
-  it, plus `minimumSystemVersion` is `10.15`.
+- `tauri.conf.json` names the release signing identity. The matching Developer ID
+  certificate must be present; override the identity with `null` only for local,
+  ad-hoc-signed test builds. `minimumSystemVersion` is `10.15`.
 - **CI:** `.github/workflows/release.yml` has a `macos` job that is **`if: false`**.
   Flip it to `true` and add the secrets it documents
   (`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`,
@@ -86,12 +85,10 @@ with final brand art before release if needed; regenerate with
 ## Definition of done (macOS, mirrors the Windows result)
 From a clean Mac: install the `.dmg` → launch → click **Share with my phone** →
 QR appears → scan in MyLLM → chat over HTTPS, Bearer-locked, against that Mac's
-own Ollama, in under 5 minutes. Endpoint returns 401 without the paired key.
+own Ollama or llama.cpp server, in under 5 minutes. Endpoint returns 401 without
+the paired key.
 
 ## Open follow-ups (both platforms, not blocking)
 - Start Menu / Applications shortcut + optional **auto-start on login**.
-- A real first-run wizard (#7) — current UI is the single Share view, not the
-  multi-step onboarding in SPEC §4.1.
-- Ollama detect/install guidance (#6) — currently assumes Ollama is already
-  running; `start_sharing` reports `ollama_up: false` if not, but there's no
-  install flow yet.
+- A settings control for a non-default llama.cpp port; today use
+  `MYLLM_LLAMA_CPP_URL` for ports other than 8080/8081.

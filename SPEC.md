@@ -2,6 +2,11 @@
 
 **Status:** spec v1, 2026-06-05 · **Author:** opticell team
 
+**Implementation update (2026-10-10):** ADR-004 supersedes the Ollama-only
+recommendation. The companion now supports external Ollama and llama.cpp
+servers while keeping the iOS pairing contract unchanged. Neither runtime is
+bundled.
+
 ## 1. What we're building
 
 A small, signed **system-tray desktop app for macOS and Windows** named **MyLLM
@@ -32,7 +37,7 @@ contributor host (see §7).
 
 ```
 [ Mac/PC: MyLLM Connect ]                         [ iPhone: MyLLM ]
-  Ollama (127.0.0.1:11434)
+  Ollama :11434 or llama.cpp :8080/:8081
      ▲
   bearer auth proxy  ── the lock (401 without the key)
      ▲
@@ -67,8 +72,8 @@ See [`PAIRING_PROTOCOL.md`](PAIRING_PROTOCOL.md) for the exact contract.
 
 ### 4.3 Background
 - Optional auto-start (off by default).
-- On wake / network change: re-establish `tailscale serve`, restart Ollama if it
-  died (one auto-retry), update tray status without user action.
+- On wake / network change: re-establish `tailscale serve`, re-detect the local
+  model server, and update tray status without user action.
 - Rotating the key invalidates old devices immediately.
 
 ## 5. Copy rules
@@ -81,13 +86,15 @@ key", "the link to your phone"). Surface only the one thing the user can act on.
 
 - **Runtime:** **Tauri (Rust)** — small, cross-platform (macOS + Windows now, Linux
   trivial later), shares a language with the opticell crates. Record as ADR-001.
-- **Model server:** manage **Ollama** (detect, else guide install) for v1 — mature
-  GPU/model story, least code. Bundling llama.cpp is a later option. ADR-002.
+- **Model server:** connect to external **Ollama or llama.cpp**. Keep Ollama as a
+  direct pass-through; adapt llama.cpp's OpenAI-compatible API behind the
+  existing iOS contract. Do not bundle either runtime. ADR-004.
 - **HTTPS:** **Tailscale-first** (decided). `tailscale serve` for the private mesh
   cert; do **not** bundle Tailscale (own signed install) — guide the user to it.
   A public Cloudflare-funnel fallback is explicitly out of scope for v1.
-- **Auth proxy:** a tiny in-process Rust HTTP layer that checks the bearer key and
-  forwards to `127.0.0.1:11434`, bound to the Tailscale interface only.
+- **Auth proxy:** a small in-process Rust HTTP layer that checks the bearer key,
+  then forwards to Ollama or translates for llama.cpp. It binds to loopback and
+  is exposed only through Tailscale Serve.
 - **Signing:** macOS notarization + Windows EV signing before public distribution
   (unsigned = SmartScreen/Gatekeeper friction that kills the funnel). Certs are an
   opticell open question.
@@ -127,7 +134,8 @@ The app needs a small, contained addition (the other half of the killer feature)
 ## 10. Honest sequencing
 
 1. **Now (unblocked):** iOS pairing flow + this spec + protocol. Testable against a
-   hand-run `tailscale serve` + Ollama before the companion exists.
+   hand-run `tailscale serve` + a supported local model server before the
+   companion exists.
 2. **Companion v1:** Tauri app implementing §4 against the protocol.
 3. **Polish:** signing, auto-update, curated models, first-run copy review.
 4. **Later:** Cloudflare-funnel fallback, federation mode, Linux/Store SKUs.

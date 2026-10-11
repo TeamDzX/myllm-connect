@@ -12,17 +12,21 @@ endpoint useless to anything but the paired app.
 
 ## Roles
 
-- **Companion** — the Mac/PC tray app. Runs the model server, brings up the HTTPS
-  endpoint, mints the access key, renders the pairing payload as a QR.
+- **Companion** — the Mac/PC tray app. Connects to the user's local model server,
+  brings up the HTTPS endpoint, mints the access key, and renders the pairing
+  payload as a QR.
 - **App** — MyLLM on iOS. Scans the QR (or opens the deep link), confirms with the
   user, stores the endpoint + key, and uses them as a standard server provider.
 
 ## The endpoint (companion side)
 
-1. Run the model server locally (Ollama) on `127.0.0.1:11434`.
+1. Run a supported model server locally: Ollama on `127.0.0.1:11434`, or a
+   llama.cpp OpenAI-compatible server on loopback (ports 8080 and 8081 are
+   auto-detected; other ports can be configured).
 2. Run a tiny **auth proxy** in front of it that requires
-   `Authorization: Bearer <token>` and forwards authorized requests to
-   `127.0.0.1:11434`. Unauthorized requests get `401`. **This proxy is the lock.**
+   `Authorization: Bearer <token>` and forwards or translates authorized
+   requests to the detected loopback server. Unauthorized requests get `401`.
+   **This proxy is the lock.**
 3. Expose the auth proxy over **Tailscale Serve** as HTTPS:
    `https://<machine>.<tailnet>.ts.net/`. Tailscale provisions a valid
    Let's Encrypt certificate that iOS trusts natively, and routes directly over the
@@ -30,7 +34,8 @@ endpoint useless to anything but the paired app.
 
 The app therefore talks to the same Ollama HTTP API it already supports
 (`GET /api/tags`, `POST /api/chat`) — now at an HTTPS base URL, with a Bearer key.
-No new server API is introduced.
+For llama.cpp, the companion translates those calls to `/v1/models` and
+`/v1/chat/completions`; no new iOS API is introduced.
 
 ## The pairing payload
 
@@ -57,7 +62,7 @@ myllm://pair?v=1
 
 ```
 Companion                                  App (MyLLM on iOS)
-  pick model, start Ollama
+  start a supported local model server
   start auth proxy (mints token)
   tailscale serve  → https URL + cert
   render QR(myllm://pair?…)        ──scan──►  parse payload
@@ -89,8 +94,8 @@ displays the token. The user taps **Connect** to apply.
 ## Security notes
 
 - The token is the only credential; the HTTPS URL alone grants nothing (`401`).
-- The auth proxy should bind to the Tailscale interface, not `0.0.0.0`, so the
-  endpoint isn't even reachable on the local LAN without both the mesh and the token.
+- The auth proxy binds to `127.0.0.1`, never `0.0.0.0`; Tailscale Serve is the
+  only external path to it. The LAN cannot reach the proxy directly.
 - Tailnet traffic is end-to-end WireGuard; no third party sees prompt content on the
   private path. (A future public-funnel option would still require the token but
   would terminate TLS at the edge — out of scope for v1, and would be disclosed.)
@@ -107,7 +112,8 @@ displays the token. The user taps **Connect** to apply.
 
 ## Companion side — what v1 needs
 
-- Detect/instal/manage Ollama; pull the chosen model.
-- Mint token; run the bearer auth proxy → `127.0.0.1:11434`.
+- Detect a local Ollama or llama.cpp server; guide the user when neither is ready.
+- Mint a token; run the loopback bearer-auth proxy in front of the detected
+  backend.
 - Drive `tailscale serve` (and prompt the user to install/sign in to Tailscale once).
 - Render the QR + backup code; show tray status (connected / reconnecting / off).
