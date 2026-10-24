@@ -7,3 +7,6 @@ __pycache__/
 node_modules/
 src-tauri/target/
 src-tauri/gen/
+
+# macOS Finder metadata
+.DS_Store
