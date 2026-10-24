@@ -21,6 +21,8 @@ It does three things:
 2. **Gives it a trusted HTTPS address** your iPhone accepts — privately, over your own [Tailscale](https://tailscale.com) mesh, with a valid certificate. No port-forwarding, no self-signed-cert warnings, works on your home WiFi and when you're out.
 3. **Pairs to MyLLM with a QR code** — scan once and the app is configured with the address and a private access key.
 
+Once paired it stays out of the way: sharing resumes when the app starts, it re-checks the link every minute (so it recovers after sleep or a network change), and the menubar/tray lets you **open it at login**, **keep the computer awake while sharing**, or **stop sharing**.
+
 Your prompts go straight from your phone to your own machine. Nothing runs in our cloud; we never see your data.
 
 ## Why HTTPS matters

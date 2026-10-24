@@ -1,23 +1,36 @@
 //! MyLLM Connect — desktop companion.
 //!
-//! v0.1 vertical slice: the proven pairing loop, in-process.
+//! The pairing loop, in-process:
 //!   #3 bearer auth proxy  ·  #4 tailscale serve  ·  #5 QR pairing
-//! Driven from the window by a "Share with my phone" button.
+//! plus the steady-state lifecycle (#8): resume sharing on launch, optional
+//! login auto-start, keep-awake while sharing, and a periodic health check
+//! that re-establishes `tailscale serve` after sleep or a network change.
 
+mod awake;
 mod ollama;
 mod pairing;
 mod proxy;
+mod settings;
 mod tailscale;
+
+use std::sync::Mutex;
+use std::time::Duration;
 
 use serde::Serialize;
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Manager, State, WindowEvent, Wry,
+    AppHandle, Emitter, Manager, State, WindowEvent, Wry,
 };
+use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tokio::sync::RwLock;
 
 use proxy::ProxyState;
+
+/// Passed by the login item, so a login launch stays in the tray.
+const AUTOSTART_ARG: &str = "--autostart";
+/// How often to re-check the link while sharing.
+const HEALTH_INTERVAL: Duration = Duration::from_secs(60);
 
 /// App-wide state shared with Tauri commands.
 struct AppState {
@@ -29,15 +42,42 @@ struct AppState {
     /// Set when the proxy couldn't start at all — sharing would hand the phone
     /// a QR for a dead endpoint, so we surface this instead.
     proxy_error: Option<String>,
+    settings: Mutex<settings::Settings>,
+    awake: awake::KeepAwake,
 }
 
-/// The tray's disabled first line, kept so we can update it as state changes.
-struct TrayStatus(MenuItem<Wry>);
+/// Tray items we update as state changes.
+struct Tray {
+    status: MenuItem<Wry>,
+    stop: MenuItem<Wry>,
+    login: CheckMenuItem<Wry>,
+    awake: CheckMenuItem<Wry>,
+}
+
+#[derive(Serialize, Clone)]
+struct ShareResult {
+    /// Tailscale node state (tagged enum: not_installed / logged_out /
+    /// stopped / serve_not_enabled / healthy / error).
+    tailscale: tailscale::TailscaleState,
+    /// Present when ready to pair.
+    pair_url: Option<String>,
+    qr_svg: Option<String>,
+    model: Option<String>,
+    ollama_up: bool,
+}
+
+/// User preferences as the window and tray show them.
+#[derive(Serialize, Clone)]
+struct Prefs {
+    autostart: bool,
+    keep_awake: bool,
+    sharing: bool,
+}
 
 /// Reflect the current state in the tray's status line and tooltip.
 fn set_tray_status(app: &AppHandle, text: &str) {
-    if let Some(item) = app.try_state::<TrayStatus>() {
-        let _ = item.0.set_text(text);
+    if let Some(tray) = app.try_state::<Tray>() {
+        let _ = tray.status.set_text(text);
     }
     if let Some(tray) = app.tray_by_id("main") {
         let _ = tray.set_tooltip(Some(format!("MyLLM Connect — {text}")));
@@ -55,16 +95,40 @@ fn tray_text(res: &ShareResult) -> &'static str {
     }
 }
 
-#[derive(Serialize)]
-struct ShareResult {
-    /// Tailscale node state (tagged enum: not_installed / logged_out /
-    /// serve_not_enabled / healthy / error).
-    tailscale: tailscale::TailscaleState,
-    /// Present when ready to pair.
-    pair_url: Option<String>,
-    qr_svg: Option<String>,
-    model: Option<String>,
-    ollama_up: bool,
+fn prefs(app: &AppHandle) -> Prefs {
+    let state = app.state::<AppState>();
+    let s = state.settings.lock().unwrap();
+    Prefs {
+        autostart: app.autolaunch().is_enabled().unwrap_or(false),
+        keep_awake: s.keep_awake,
+        sharing: s.sharing,
+    }
+}
+
+/// Push preferences to the tray checkmarks and the window.
+fn sync_prefs(app: &AppHandle) -> Prefs {
+    let p = prefs(app);
+    if let Some(tray) = app.try_state::<Tray>() {
+        let _ = tray.login.set_checked(p.autostart);
+        let _ = tray.awake.set_checked(p.keep_awake);
+        let _ = tray.stop.set_enabled(p.sharing);
+    }
+    let _ = app.emit("prefs-changed", &p);
+    p
+}
+
+/// Record whether sharing is on (persisted, so it resumes on launch) and
+/// hold or release keep-awake to match.
+fn set_sharing(state: &AppState, on: bool) {
+    let keep_awake = {
+        let mut s = state.settings.lock().unwrap();
+        if s.sharing != on {
+            s.sharing = on;
+            settings::save(&s);
+        }
+        s.keep_awake
+    };
+    state.awake.set(on && keep_awake);
 }
 
 /// Start (or re-confirm) sharing: ensure Ollama is up, bring up tailscale serve,
@@ -73,10 +137,7 @@ struct ShareResult {
 #[tauri::command]
 async fn start_sharing(app: AppHandle, state: State<'_, AppState>) -> Result<ShareResult, String> {
     let res = share(&state).await;
-    match &res {
-        Ok(r) => set_tray_status(&app, tray_text(r)),
-        Err(_) => set_tray_status(&app, "Action needed"),
-    }
+    after_share(&app, &state, &res);
     res
 }
 
@@ -115,6 +176,73 @@ async fn share(state: &AppState) -> Result<ShareResult, String> {
         model,
         ollama_up,
     })
+}
+
+/// Tray + persisted state after a share attempt. A failed attempt keeps the
+/// user's intent to share, so the health check keeps retrying it.
+fn after_share(app: &AppHandle, state: &AppState, res: &Result<ShareResult, String>) {
+    match res {
+        Ok(r) => {
+            set_tray_status(app, tray_text(r));
+            if r.pair_url.is_some() {
+                set_sharing(state, true);
+            }
+        }
+        Err(_) => set_tray_status(app, "Action needed"),
+    }
+    sync_prefs(app);
+}
+
+/// Stop sharing: take down `tailscale serve` and forget the intent to share.
+#[tauri::command]
+async fn stop_sharing(app: AppHandle, state: State<'_, AppState>) -> Result<Prefs, String> {
+    stop_serving(&app, &state).await?;
+    Ok(prefs(&app))
+}
+
+async fn stop_serving(app: &AppHandle, state: &AppState) -> Result<(), String> {
+    let res = tokio::task::spawn_blocking(tailscale::stop_serve)
+        .await
+        .map_err(|e| e.to_string())?;
+    if let Err(e) = res {
+        set_tray_status(app, "Action needed: couldn't stop sharing");
+        return Err(format!("Couldn't stop sharing: {e}"));
+    }
+    set_sharing(state, false);
+    *state.https_url.write().await = None;
+    set_tray_status(app, "Not sharing");
+    sync_prefs(app);
+    Ok(())
+}
+
+#[tauri::command]
+fn get_prefs(app: AppHandle) -> Prefs {
+    prefs(&app)
+}
+
+/// Turn login auto-start on or off (the OS stores this, not our settings).
+#[tauri::command]
+fn set_autostart(app: AppHandle, on: bool) -> Result<Prefs, String> {
+    let launcher = app.autolaunch();
+    let r = if on {
+        launcher.enable()
+    } else {
+        launcher.disable()
+    };
+    let p = sync_prefs(&app);
+    r.map(|_| p).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_keep_awake(app: AppHandle, state: State<'_, AppState>, on: bool) -> Prefs {
+    let sharing = {
+        let mut s = state.settings.lock().unwrap();
+        s.keep_awake = on;
+        settings::save(&s);
+        s.sharing
+    };
+    state.awake.set(on && sharing);
+    sync_prefs(&app)
 }
 
 /// Just the current node state (no serve side effects) — for status polling.
@@ -173,6 +301,33 @@ async fn rotate_key(app: AppHandle, state: State<'_, AppState>) -> Result<ShareR
     start_sharing(app, state).await
 }
 
+fn show_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+/// Resume sharing if it was on when we last quit, then keep it healthy:
+/// re-running `serve` is idempotent and recovers it after sleep/wake or a
+/// network change. The window re-renders from `share-updated` if it's open.
+fn spawn_lifecycle(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            let state = app.state::<AppState>();
+            let sharing = state.settings.lock().unwrap().sharing;
+            if sharing {
+                let res = share(&state).await;
+                after_share(&app, &state, &res);
+                if let Ok(r) = res {
+                    let _ = app.emit("share-updated", r);
+                }
+            }
+            tokio::time::sleep(HEALTH_INTERVAL).await;
+        }
+    });
+}
+
 pub fn run() {
     let token = pairing::load_or_mint();
     let proxy_state = ProxyState::new(token);
@@ -198,23 +353,42 @@ pub fn run() {
         Err(e) => (proxy::PROXY_PORT, Some(e)),
     };
 
+    let launched_at_login = std::env::args().any(|a| a == AUTOSTART_ARG);
+
     tauri::Builder::default()
+        // Must be registered first: a second launch (e.g. opening the app while
+        // the login item already started it) just brings this window forward.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_window(app);
+        }))
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .args([AUTOSTART_ARG])
+                .macos_launcher(MacosLauncher::LaunchAgent)
+                .build(),
+        )
         .manage(AppState {
             proxy: proxy_state,
             https_url: RwLock::new(None),
             port,
             proxy_error,
+            settings: Mutex::new(settings::load()),
+            awake: awake::KeepAwake::default(),
         })
         .invoke_handler(tauri::generate_handler![
             start_sharing,
+            stop_sharing,
             get_status,
             rotate_key,
             open_url,
             ollama_status,
             is_onboarded,
-            set_onboarded
+            set_onboarded,
+            get_prefs,
+            set_autostart,
+            set_keep_awake
         ])
-        .setup(|app| {
+        .setup(move |app| {
             // macOS: run as a menubar-only accessory — no Dock icon, no app menu
             // (equivalent to LSUIElement). The tray is the whole UI surface.
             #[cfg(target_os = "macos")]
@@ -224,9 +398,38 @@ pub fn run() {
 
             let status = MenuItem::with_id(app, "status", "Not sharing yet", false, None::<&str>)?;
             let open = MenuItem::with_id(app, "open", "Open MyLLM Connect", true, None::<&str>)?;
+            let stop = MenuItem::with_id(app, "stop", "Stop sharing", false, None::<&str>)?;
+            let login =
+                CheckMenuItem::with_id(app, "login", "Open at login", true, false, None::<&str>)?;
+            let awake = CheckMenuItem::with_id(
+                app,
+                "awake",
+                "Keep computer awake while sharing",
+                true,
+                false,
+                None::<&str>,
+            )?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&status, &open, &quit])?;
-            app.manage(TrayStatus(status));
+            let menu = Menu::with_items(
+                app,
+                &[
+                    &status,
+                    &PredefinedMenuItem::separator(app)?,
+                    &open,
+                    &stop,
+                    &PredefinedMenuItem::separator(app)?,
+                    &login,
+                    &awake,
+                    &PredefinedMenuItem::separator(app)?,
+                    &quit,
+                ],
+            )?;
+            app.manage(Tray {
+                status,
+                stop,
+                login,
+                awake,
+            });
 
             // Menubar icon: a monochrome *template* on macOS so it adapts to
             // light/dark menubars; the full-colour app icon on other platforms.
@@ -242,11 +445,23 @@ pub fn run() {
                 .menu(&menu)
                 .show_menu_on_left_click(true)
                 .on_menu_event(|app, event| match event.id.as_ref() {
-                    "open" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
+                    "open" => show_window(app),
+                    "stop" => {
+                        let app = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let state = app.state::<AppState>();
+                            let _ = stop_serving(&app, &state).await;
+                        });
+                    }
+                    // Check items toggle themselves on click; apply the change,
+                    // then sync_prefs resets the mark to what actually took.
+                    "login" => {
+                        let on = !prefs(app).autostart;
+                        let _ = set_autostart(app.clone(), on);
+                    }
+                    "awake" => {
+                        let on = !prefs(app).keep_awake;
+                        set_keep_awake(app.clone(), app.state::<AppState>(), on);
                     }
                     "quit" => app.exit(0),
                     _ => {}
@@ -255,6 +470,14 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             let tray = tray.icon_as_template(true);
             tray.build(app)?;
+
+            sync_prefs(app.handle());
+            // The window starts hidden (tauri.conf.json); a login launch stays
+            // in the tray, a normal launch shows it.
+            if !launched_at_login {
+                show_window(app.handle());
+            }
+            spawn_lifecycle(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "MyLLM Connect",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "identifier": "com.opticell.myllm-connect",
   "build": {
     "frontendDist": "../ui"
@@ -14,7 +14,8 @@
         "width": 420,
         "height": 600,
         "resizable": false,
-        "center": true
+        "center": true,
+        "visible": false
       }
     ],
     "security": {

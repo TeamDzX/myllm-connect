@@ -1,8 +1,14 @@
 const invoke = window.__TAURI__.core.invoke;
+const listen = window.__TAURI__.event.listen;
 
 const $ = (id) => document.getElementById(id);
 const panels = ["welcome", "idle", "ollama", "working", "paired", "guide"];
-const show = (id) => panels.forEach((p) => $(p).classList.toggle("hidden", p !== id));
+let current = null;
+const show = (id) => {
+  current = id;
+  panels.forEach((p) => $(p).classList.toggle("hidden", p !== id));
+  $("prefs").classList.toggle("hidden", id === "welcome");
+};
 const setStatus = (cls, text) => {
   $("dot").className = "dot " + cls;
   $("statusText").textContent = text;
@@ -128,6 +134,32 @@ function guide(text, btnLabel, btnUrl) {
   show("guide");
 }
 
+// ---- Preferences (mirrored in the tray menu) ----
+
+function renderPrefs(p) {
+  $("autostartBox").checked = p.autostart;
+  $("awakeBox").checked = p.keep_awake;
+}
+
+$("autostartBox").onchange = async (e) => {
+  try {
+    renderPrefs(await invoke("set_autostart", { on: e.target.checked }));
+  } catch (err) {
+    e.target.checked = !e.target.checked;
+    guide("Couldn’t change the login setting: " + err, null, null);
+  }
+};
+$("awakeBox").onchange = async (e) => {
+  renderPrefs(await invoke("set_keep_awake", { on: e.target.checked }));
+};
+listen("prefs-changed", (e) => renderPrefs(e.payload));
+
+// The background health check re-shares periodically; refresh what's on
+// screen if it's showing a share result (QR or guidance).
+listen("share-updated", (e) => {
+  if (current === "paired" || current === "guide") render(e.payload);
+});
+
 // ---- Wiring ----
 
 $("startBtn").onclick = checkOllama; // begin first-run setup at the model step
@@ -140,6 +172,17 @@ $("skipBtn").onclick = async () => {
 $("ollamaRecheck").onclick = checkOllama;
 $("shareBtn").onclick = share;
 $("retryBtn").onclick = share;
+$("stopBtn").onclick = async () => {
+  show("working");
+  setStatus("amber", "Stopping…");
+  try {
+    await invoke("stop_sharing");
+    setStatus("grey", "Not sharing");
+    show("idle");
+  } catch (e) {
+    guide(String(e), null, null);
+  }
+};
 $("rotateBtn").onclick = async () => {
   show("working");
   setStatus("amber", "Rotating…");
@@ -154,7 +197,11 @@ $("rotateBtn").onclick = async () => {
 (async () => {
   let done = false;
   try { done = await invoke("is_onboarded"); } catch {}
-  if (done) {
+  let prefs = null;
+  try { prefs = await invoke("get_prefs"); renderPrefs(prefs); } catch {}
+  if (done && prefs && prefs.sharing) {
+    share(); // was sharing when last quit — go straight back to the QR
+  } else if (done) {
     setStatus("grey", "Not sharing yet");
     show("idle");
   } else {

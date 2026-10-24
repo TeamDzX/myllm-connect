@@ -195,6 +195,28 @@ pub fn start_serve(proxy_port: u16) -> TailscaleState {
     }
 }
 
+/// Stop exposing the proxy. Only removes the HTTPS :443 handler `start_serve`
+/// set up (`serve --bg <port>` defaults to it), leaving any other serve
+/// config the user has alone — unlike `serve reset`.
+pub fn stop_serve() -> Result<(), String> {
+    let Some(cli) = cli() else {
+        // Nothing installed means nothing is being served.
+        return Ok(());
+    };
+    let out = run(&cli, &["serve", "--https=443", "off"]).map_err(|e| e.to_string())?;
+    if out.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    // Already off is fine.
+    if stderr.to_lowercase().contains("not found")
+        || stderr.to_lowercase().contains("no serve config")
+    {
+        return Ok(());
+    }
+    Err(stderr.trim().to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
