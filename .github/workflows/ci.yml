@@ -21,7 +21,9 @@ jobs:
         with: { workspaces: src-tauri }
       - run: cargo fmt --check
         working-directory: src-tauri
-      - run: cargo clippy --no-deps -- -D warnings
+      - run: cargo clippy --no-deps --all-targets -- -D warnings
+        working-directory: src-tauri
+      - run: cargo test
         working-directory: src-tauri
       - run: cargo build --release
         working-directory: src-tauri
