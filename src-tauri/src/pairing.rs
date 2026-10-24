@@ -38,18 +38,36 @@ pub fn mark_onboarded() {
     let _ = std::fs::write(&path, b"1");
 }
 
+/// Persist the token readable by its owner only — it's a password. (On Windows
+/// the per-user AppData folder is already private to the account.)
+fn write_token(path: &PathBuf, token: &str) {
+    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    let _ = std::fs::write(path, token);
+    restrict(path);
+}
+
+#[cfg(unix)]
+fn restrict(path: &PathBuf) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+}
+
+#[cfg(not(unix))]
+fn restrict(_path: &PathBuf) {}
+
 /// Load the persisted token, or mint+persist a fresh one.
 pub fn load_or_mint() -> String {
     let path = token_path();
     if let Ok(t) = std::fs::read_to_string(&path) {
         let t = t.trim().to_string();
         if !t.is_empty() {
+            // Tighten files written by v0.1.0 with default permissions.
+            restrict(&path);
             return t;
         }
     }
     let token = mint_token();
-    let _ = std::fs::create_dir_all(path.parent().unwrap());
-    let _ = std::fs::write(&path, &token);
+    write_token(&path, &token);
     token
 }
 
@@ -57,8 +75,7 @@ pub fn load_or_mint() -> String {
 pub fn rotate() -> String {
     let path = token_path();
     let token = mint_token();
-    let _ = std::fs::create_dir_all(path.parent().unwrap());
-    let _ = std::fs::write(&path, &token);
+    write_token(&path, &token);
     token
 }
 

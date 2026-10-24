@@ -1,6 +1,6 @@
 [package]
 name = "myllm-connect"
-version = "0.1.0"
+version = "0.1.1"
 description = "MyLLM Connect — run a private AI backend on your computer and pair your iPhone to it"
 authors = ["Opticell Limited"]
 license = "Apache-2.0"

@@ -20,9 +20,13 @@ pub enum TailscaleState {
     /// The Tailscale app is installed but its command-line tool isn't linked.
     /// Mac App Store installs don't add the CLI to a standard path — the user
     /// must run "Tailscale ▸ Install CLI" once. (macOS-specific.)
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     CliNotLinked,
     /// Installed but the node is logged out.
     LoggedOut,
+    /// Installed, but Tailscale is switched off or its background service
+    /// isn't running — the user needs to open Tailscale and connect.
+    Stopped,
     /// Logged in, but HTTPS/Serve isn't enabled on the tailnet yet.
     /// `enable_url` is the admin-console link the CLI provides.
     ServeNotEnabled { enable_url: Option<String> },
@@ -66,8 +70,31 @@ fn not_found_state() -> TailscaleState {
     TailscaleState::NotInstalled
 }
 
+/// Run the CLI and capture its output. On Windows, suppress the console
+/// window a console-subsystem child would otherwise flash on screen.
 fn run(cli: &PathBuf, args: &[&str]) -> std::io::Result<std::process::Output> {
-    Command::new(cli).args(args).output()
+    let mut cmd = Command::new(cli);
+    cmd.args(args);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd.output()
+}
+
+/// Map `tailscale status --json`'s `BackendState` to what the user must do.
+fn state_from_backend(backend: &str) -> TailscaleState {
+    match backend {
+        // Healthy-ish; the real URL only exists after `serve`.
+        "Running" => TailscaleState::Healthy { url: String::new() },
+        "NeedsLogin" | "NeedsMachineAuth" => TailscaleState::LoggedOut,
+        "Stopped" | "NoState" | "Starting" => TailscaleState::Stopped,
+        other => TailscaleState::Error {
+            message: format!("Tailscale is in an unexpected state ({other})"),
+        },
+    }
 }
 
 /// Current node state without touching serve.
@@ -75,15 +102,18 @@ pub fn status() -> TailscaleState {
     let Some(cli) = cli() else {
         return not_found_state();
     };
-    match run(&cli, &["status"]) {
+    match run(&cli, &["status", "--json"]) {
         Ok(out) => {
-            let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
-            let err = String::from_utf8_lossy(&out.stderr).to_lowercase();
-            if text.contains("logged out") || err.contains("logged out") {
-                TailscaleState::LoggedOut
-            } else {
-                // Healthy-ish; the real URL only exists after `serve`.
-                TailscaleState::Healthy { url: String::new() }
+            // A non-JSON reply means the CLI couldn't reach the background
+            // service (not running, or the app was quit).
+            let parsed: Option<serde_json::Value> = serde_json::from_slice(&out.stdout).ok();
+            match parsed
+                .as_ref()
+                .and_then(|v| v.get("BackendState"))
+                .and_then(|b| b.as_str())
+            {
+                Some(backend) => state_from_backend(backend),
+                None => TailscaleState::Stopped,
             }
         }
         Err(e) => TailscaleState::Error {
@@ -112,9 +142,11 @@ pub fn start_serve(proxy_port: u16) -> TailscaleState {
         return not_found_state();
     };
 
-    // Already logged out? report it cleanly.
-    if status() == TailscaleState::LoggedOut {
-        return TailscaleState::LoggedOut;
+    // Logged out, switched off, or otherwise not ready? Report that cleanly
+    // rather than letting `serve` fail with a less useful message.
+    let current = status();
+    if !matches!(current, TailscaleState::Healthy { .. }) {
+        return current;
     }
 
     let port = proxy_port.to_string();
@@ -147,7 +179,46 @@ pub fn start_serve(proxy_port: u16) -> TailscaleState {
         }
     }
 
+    if !out.status.success() {
+        let detail = stderr.trim();
+        return TailscaleState::Error {
+            message: if detail.is_empty() {
+                "Tailscale couldn't start sharing".into()
+            } else {
+                detail.lines().next().unwrap_or(detail).to_string()
+            },
+        };
+    }
+
     TailscaleState::Error {
         message: "serve started but no https URL was found".into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backend_states_map_to_actions() {
+        assert!(matches!(
+            state_from_backend("Running"),
+            TailscaleState::Healthy { .. }
+        ));
+        assert_eq!(state_from_backend("NeedsLogin"), TailscaleState::LoggedOut);
+        assert_eq!(state_from_backend("Stopped"), TailscaleState::Stopped);
+        assert!(matches!(
+            state_from_backend("Weird"),
+            TailscaleState::Error { .. }
+        ));
+    }
+
+    #[test]
+    fn finds_ts_net_url() {
+        let out = "Available within your tailnet:\n\nhttps://mac.tail1234.ts.net/\n|-- proxy http://127.0.0.1:11435";
+        assert_eq!(
+            extract_url(out).as_deref(),
+            Some("https://mac.tail1234.ts.net")
+        );
     }
 }

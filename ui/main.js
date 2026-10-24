@@ -101,6 +101,8 @@ function render(res) {
         "Open Tailscale", "/Applications/Tailscale.app");
     case "logged_out":
       return guide("Almost there — open Tailscale and sign in, then try again.", null, null);
+    case "stopped":
+      return guide("Tailscale is switched off. Open Tailscale and connect, then try again.", null, null);
     case "serve_not_enabled":
       return guide(
         "One more step: allow secure connections for your account (a one-time setting), then try again.",
