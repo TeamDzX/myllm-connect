@@ -28,6 +28,10 @@
     .panel { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; }
     .hidden { display: none !important; }
     a { color: var(--blue); }
+    #prefs { width: 100%; border-top: 1px solid rgba(127,127,127,.25); padding-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+    #prefs label { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer; }
+    #prefs input { accent-color: var(--blue); width: 16px; height: 16px; margin: 0; }
+    #prefs .note { font-size: 0.75rem; color: #6b7280; margin: -4px 0 0 24px; }
     code { background: rgba(127,127,127,.15); padding: 1px 5px; border-radius: 4px; font-size: 0.85em; }
   </style>
 </head>
@@ -67,6 +71,7 @@
     <p class="hint">Open <b>MyLLM</b> on your iPhone → <b>Settings → Pair a Backend</b> → scan this.</p>
     <p class="hint" id="modelLine"></p>
     <button class="secondary" id="rotateBtn">Rotate access key</button>
+    <button class="secondary" id="stopBtn">Stop sharing</button>
   </div>
 
   <!-- Guidance (needs action) -->
@@ -74,6 +79,13 @@
     <p class="hint" id="guideText"></p>
     <button id="guideBtn" class="hidden"></button>
     <button class="secondary" id="retryBtn">Try again</button>
+  </div>
+
+  <!-- Preferences (everywhere except the welcome screen) -->
+  <div id="prefs" class="hidden">
+    <label><input type="checkbox" id="autostartBox" /> Open at login</label>
+    <label><input type="checkbox" id="awakeBox" /> Keep computer awake while sharing</label>
+    <p class="note">So your phone can reach it. Closing a laptop lid still sleeps it.</p>
   </div>
 
   <script type="module" src="main.js"></script>
