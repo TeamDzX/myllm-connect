@@ -13,7 +13,7 @@ use serde::Serialize;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Manager, State, WindowEvent,
+    AppHandle, Manager, State, WindowEvent, Wry,
 };
 use tokio::sync::RwLock;
 
@@ -24,6 +24,35 @@ struct AppState {
     proxy: ProxyState,
     /// Cached https URL once tailscale serve is up.
     https_url: RwLock<Option<String>>,
+    /// Port the proxy actually bound (the preferred one may have been taken).
+    port: u16,
+    /// Set when the proxy couldn't start at all — sharing would hand the phone
+    /// a QR for a dead endpoint, so we surface this instead.
+    proxy_error: Option<String>,
+}
+
+/// The tray's disabled first line, kept so we can update it as state changes.
+struct TrayStatus(MenuItem<Wry>);
+
+/// Reflect the current state in the tray's status line and tooltip.
+fn set_tray_status(app: &AppHandle, text: &str) {
+    if let Some(item) = app.try_state::<TrayStatus>() {
+        let _ = item.0.set_text(text);
+    }
+    if let Some(tray) = app.tray_by_id("main") {
+        let _ = tray.set_tooltip(Some(format!("MyLLM Connect — {text}")));
+    }
+}
+
+/// One-line tray summary of a share attempt.
+fn tray_text(res: &ShareResult) -> &'static str {
+    if res.pair_url.is_some() {
+        "Sharing — ready to pair"
+    } else if !res.ollama_up || res.model.is_none() {
+        "Action needed: local model"
+    } else {
+        "Action needed: secure link"
+    }
 }
 
 #[derive(Serialize)]
@@ -42,11 +71,24 @@ struct ShareResult {
 /// and produce the pairing QR. The proxy itself is already listening (started at
 /// launch), so this is idempotent.
 #[tauri::command]
-async fn start_sharing(state: State<'_, AppState>) -> Result<ShareResult, String> {
+async fn start_sharing(app: AppHandle, state: State<'_, AppState>) -> Result<ShareResult, String> {
+    let res = share(&state).await;
+    match &res {
+        Ok(r) => set_tray_status(&app, tray_text(r)),
+        Err(_) => set_tray_status(&app, "Action needed"),
+    }
+    res
+}
+
+async fn share(state: &AppState) -> Result<ShareResult, String> {
+    if let Some(err) = &state.proxy_error {
+        return Err(format!("MyLLM Connect couldn't start its local service: {err}. Quit any other copy of MyLLM Connect, then reopen it."));
+    }
     let ollama_up = proxy::ollama_up().await;
 
     // tailscale serve is blocking CLI work — run it off the async runtime.
-    let ts = tokio::task::spawn_blocking(|| tailscale::start_serve(proxy::PROXY_PORT))
+    let port = state.port;
+    let ts = tokio::task::spawn_blocking(move || tailscale::start_serve(port))
         .await
         .map_err(|e| e.to_string())?;
 
@@ -87,9 +129,14 @@ async fn get_status() -> Result<tailscale::TailscaleState, String> {
 /// admin-console enable links from the guidance panel).
 #[tauri::command]
 fn open_url(url: String) -> Result<(), String> {
+    // Only the links the guidance panels use: web pages, and the Tailscale app.
+    if !(url.starts_with("https://") || url == "/Applications/Tailscale.app") {
+        return Err("refusing to open that link".into());
+    }
+    // Not `cmd /C start`: cmd would treat `&` in a URL as a command separator.
     #[cfg(windows)]
-    let r = std::process::Command::new("cmd")
-        .args(["/C", "start", "", &url])
+    let r = std::process::Command::new("rundll32")
+        .args(["url.dll,FileProtocolHandler", &url])
         .spawn();
     #[cfg(target_os = "macos")]
     let r = std::process::Command::new("open").arg(&url).spawn();
@@ -118,37 +165,45 @@ fn set_onboarded() {
 
 /// Rotate the access key (invalidates paired devices) and re-render the QR.
 #[tauri::command]
-async fn rotate_key(state: State<'_, AppState>) -> Result<ShareResult, String> {
+async fn rotate_key(app: AppHandle, state: State<'_, AppState>) -> Result<ShareResult, String> {
     let new_token = tokio::task::spawn_blocking(pairing::rotate)
         .await
         .map_err(|e| e.to_string())?;
     *state.proxy.token.write().await = new_token;
-    start_sharing(state).await
+    start_sharing(app, state).await
 }
 
 pub fn run() {
     let token = pairing::load_or_mint();
     let proxy_state = ProxyState::new(token);
 
-    // Start the auth proxy immediately on a background tokio runtime so it's
-    // listening before the user clicks Share.
-    let proxy_for_server = proxy_state.clone();
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .expect("tokio runtime");
-        rt.block_on(async {
-            if let Err(e) = proxy::serve(proxy_for_server).await {
-                eprintln!("auth proxy stopped: {e}");
-            }
-        });
-    });
+    // Bind now, so a taken port is known before the user clicks Share; then
+    // serve on a background tokio runtime.
+    let (port, proxy_error) = match proxy::bind() {
+        Ok((listener, port)) => {
+            let proxy_for_server = proxy_state.clone();
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .expect("tokio runtime");
+                rt.block_on(async {
+                    if let Err(e) = proxy::serve(listener, proxy_for_server).await {
+                        eprintln!("auth proxy stopped: {e}");
+                    }
+                });
+            });
+            (port, None)
+        }
+        Err(e) => (proxy::PROXY_PORT, Some(e)),
+    };
 
     tauri::Builder::default()
         .manage(AppState {
             proxy: proxy_state,
             https_url: RwLock::new(None),
+            port,
+            proxy_error,
         })
         .invoke_handler(tauri::generate_handler![
             start_sharing,
@@ -171,6 +226,7 @@ pub fn run() {
             let open = MenuItem::with_id(app, "open", "Open MyLLM Connect", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&status, &open, &quit])?;
+            app.manage(TrayStatus(status));
 
             // Menubar icon: a monochrome *template* on macOS so it adapts to
             // light/dark menubars; the full-colour app icon on other platforms.
