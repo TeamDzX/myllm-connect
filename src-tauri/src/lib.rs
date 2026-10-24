@@ -22,7 +22,7 @@ use tauri::{
     tray::TrayIconBuilder,
     AppHandle, Emitter, Manager, State, WindowEvent, Wry,
 };
-use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
+use tauri_plugin_autostart::ManagerExt;
 use tokio::sync::RwLock;
 
 use proxy::ProxyState;
@@ -361,10 +361,10 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_window(app);
         }))
+        // macOS uses a LaunchAgent (the plugin's default); Windows a Run key.
         .plugin(
             tauri_plugin_autostart::Builder::new()
                 .args([AUTOSTART_ARG])
-                .macos_launcher(MacosLauncher::LaunchAgent)
                 .build(),
         )
         .manage(AppState {
