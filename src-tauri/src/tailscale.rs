@@ -20,6 +20,7 @@ pub enum TailscaleState {
     /// The Tailscale app is installed but its command-line tool isn't linked.
     /// Mac App Store installs don't add the CLI to a standard path — the user
     /// must run "Tailscale ▸ Install CLI" once. (macOS-specific.)
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     CliNotLinked,
     /// Installed but the node is logged out.
     LoggedOut,
